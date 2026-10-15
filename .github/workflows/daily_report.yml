@@ -30,10 +30,23 @@ jobs:
 
       - name: Run daily ticket report
         env:
-          WHIZZARD_USER: ${{ secrets.WHIZZARD_USER }}
-          WHIZZARD_PASS: ${{ secrets.WHIZZARD_PASS }}
+          WHIZZARD_USER: ${{ secrets.WHIZZARD_USER != '' && secrets.WHIZZARD_USER || '7658978951' }}
+          WHIZZARD_PASS: ${{ secrets.WHIZZARD_PASS != '' && secrets.WHIZZARD_PASS || '7658978951' }}
+          PYTHONUNBUFFERED: '1'
         run: |
           python daily_open_ticket_report.py
+
+      - name: Print logs on failure
+        if: failure()
+        run: |
+          echo "=== Daily logs ==="
+          if [ -d "Whizzard_Downloads/_daily_logs" ]; then
+            cat Whizzard_Downloads/_daily_logs/*.log || true
+          fi
+          echo "=== Download log ==="
+          if [ -f "Whizzard_Downloads/download_log.csv" ]; then
+            cat Whizzard_Downloads/download_log.csv || true
+          fi
 
       - name: Upload Daily Open Ticket Report Artifact
         uses: actions/upload-artifact@v4
@@ -43,6 +56,7 @@ jobs:
           path: |
             Whizzard_Downloads/Daily_Open_Ticket_Reports/*.xlsx
             Whizzard_Downloads/_daily_logs/*.log
+            Whizzard_Downloads/_debug/*
           retention-days: 90
 
       - name: Commit and push report to repository

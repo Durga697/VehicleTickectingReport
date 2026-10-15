@@ -33,8 +33,8 @@ from playwright.sync_api import (
 
 # ------------------------------- CONFIG -----------------------------------
 # Keep credentials here as requested or read from environment variables.
-WHIZZARD_USER = os.getenv("WHIZZARD_USER", "7658978951")
-WHIZZARD_PASS = os.getenv("WHIZZARD_PASS", "7658978951")
+WHIZZARD_USER = (os.getenv("WHIZZARD_USER") or "").strip() or "7658978951"
+WHIZZARD_PASS = (os.getenv("WHIZZARD_PASS") or "").strip() or "7658978951"
 
 BASE_URL = "https://whizzard-ev.com"
 OUTPUT_PATH = Path("./Whizzard_Downloads")
@@ -435,8 +435,15 @@ def main() -> int:
     debug_dir = prepare_folders()
     results: list[dict[str, str | int]] = []
     with sync_playwright() as playwright:
-        browser: Browser = playwright.chromium.launch(headless=HEADLESS)
-        context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 900})
+        browser: Browser = playwright.chromium.launch(
+            headless=HEADLESS,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = browser.new_context(
+            accept_downloads=True,
+            viewport={"width": 1440, "height": 900},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
         page = context.new_page()
         try:
             login(page, debug_dir)

@@ -56,8 +56,15 @@ def download_current_month() -> list[dict[str, str | int]]:
     results: list[dict[str, str | int]] = []
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(accept_downloads=True, viewport={"width": 1440, "height": 900})
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = browser.new_context(
+            accept_downloads=True,
+            viewport={"width": 1440, "height": 900},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
         page = context.new_page()
         try:
             downloader.login(page, debug_dir)
