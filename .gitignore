@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Editor settings
+.vscode/
+.idea/
+
+# Temporary and raw download data
+tmp/
+Whizzard_Downloads/1_Return_from_Ops/
+Whizzard_Downloads/2_Handover_to_Ops/
+Whizzard_Downloads/3_Service_Request/
+Whizzard_Downloads/4_Vehicle_Movement/
+Whizzard_Downloads/_daily_logs/
+Whizzard_Downloads/_debug/
+Whizzard_Downloads/download_log.csv
+Whizzard_Downloads/*.*
+!Whizzard_Downloads/Daily_Open_Ticket_Reports/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
