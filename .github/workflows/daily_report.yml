@@ -5,6 +5,12 @@ on:
     # Runs every day at 10:00 AM IST (04:30 AM UTC)
     - cron: '30 4 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.vscode/**'
 
 jobs:
   run-daily-report:

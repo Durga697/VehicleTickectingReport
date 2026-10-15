@@ -172,13 +172,19 @@ def login(page: Page, debug_dir: Path) -> None:
     )
     mobile.fill(WHIZZARD_USER)
     password.fill(WHIZZARD_PASS)
-    page.get_by_role("button", name=re.compile(r"Sign In", re.I)).click()
+    btn = first_visible(
+        page.get_by_role("button", name=re.compile(r"Sign In|Log In", re.I)),
+        page.locator('button:has-text("Sign In")'),
+        page.locator('button[type="submit"]'),
+        page.locator('input[type="submit"]'),
+    )
+    btn.click()
     try:
-        page.get_by_text("Fleet At a Glance", exact=False).wait_for(state="visible", timeout=30_000)
+        page.get_by_text("Fleet At a Glance", exact=False).wait_for(state="visible", timeout=45_000)
     except Exception as exc:
         # Clear the secret before the required debug screenshot.
         screenshot_failure(page, debug_dir, "login_failed")
-        raise RuntimeError("Login failed: 'Fleet At a Glance' did not appear.") from exc
+        raise RuntimeError(f"Login failed: 'Fleet At a Glance' did not appear. Current URL: {page.url}") from exc
 
 
 def ensure_logged_in(page: Page, debug_dir: Path) -> None:
