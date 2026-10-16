@@ -57,22 +57,55 @@ class Section:
     file_stem: str
     folder: Path
     action: str
+    tab_xpath: str
+    month_xpath: str
+    export_xpath: str
     subtab: str | None = None
+    subtab_xpath: str | None = None
+
+
+MOBILE_NUMBER_XPATH = "/html/body/div[1]/div/form/div[1]/input"
+PASSWORD_XPATH = "/html/body/div[1]/div/form/div[2]/input"
+SIGN_IN_XPATH = "/html/body/div[1]/div/form/div[3]/button"
+VEHICLE_TICKETING_XPATH = "/html/body/div[2]/aside/nav/button[9]/span"
 
 
 SECTIONS = (
-    Section("Return from Ops", "Return_from_Ops", Path("1_Return_from_Ops"), "Search"),
-    Section("Handover to Ops", "Handover_to_Ops", Path("2_Handover_to_Ops"), "Search"),
-    Section("Service Request", "Service_Request", Path("3_Service_Request"), "Search"),
+    Section(
+        "Return from Ops", "Return_from_Ops", Path("1_Return_from_Ops"), "Search",
+        "/html/body/div[2]/div/main/div[10]/nav/div/button[1]",
+        "/html/body/div[2]/div/main/div[10]/div[1]/div[4]/div/div[4]/input",
+        "/html/body/div[2]/div/main/div[10]/div[1]/div[4]/div/div[5]/button[2]",
+    ),
+    Section(
+        "Handover to Ops", "Handover_to_Ops", Path("2_Handover_to_Ops"), "Search",
+        "/html/body/div[2]/div/main/div[10]/nav/div/button[2]",
+        "/html/body/div[2]/div/main/div[10]/div[2]/div[4]/div/div[4]/input",
+        "/html/body/div[2]/div/main/div[10]/div[2]/div[4]/div/div[5]/button[2]",
+    ),
+    Section(
+        "Service Request", "Service_Request", Path("3_Service_Request"), "Search",
+        "/html/body/div[2]/div/main/div[10]/nav/div/button[3]",
+        "/html/body/div[2]/div/main/div[10]/div[3]/div[4]/div/div[4]/input",
+        "/html/body/div[2]/div/main/div[10]/div[3]/div[4]/div/div[5]/button[2]",
+    ),
     Section(
         "Vehicle Movement", "Inter_Station_Transfer",
         Path("4_Vehicle_Movement/Inter_Station_Transfer"), "Apply filters",
+        "/html/body/div[2]/div/main/div[10]/nav/div/button[4]",
+        "/html/body/div[2]/div/main/div[10]/div[4]/div[1]/div[3]/div[2]/input",
+        "/html/body/div[2]/div/main/div[10]/div[4]/div[1]/div[3]/div[6]/button[3]",
         "Inter Station transfer",
+        "/html/body/div[2]/div/main/div[10]/div[4]/nav/button[1]",
     ),
     Section(
         "Vehicle Movement", "Vehicle_Requisition",
         Path("4_Vehicle_Movement/Vehicle_Requisition"), "Apply filters",
+        "/html/body/div[2]/div/main/div[10]/nav/div/button[4]",
+        "/html/body/div[2]/div/main/div[10]/div[4]/div[2]/div[3]/div[2]/input",
+        "/html/body/div[2]/div/main/div[10]/div[4]/div[2]/div[3]/div[6]/button[3]",
         "Vehicle Requisition",
+        "/html/body/div[2]/div/main/div[10]/div[4]/nav/button[2]",
     ),
 )
 
@@ -161,23 +194,14 @@ def screenshot_failure(page: Page, debug_dir: Path, name: str) -> None:
 
 def login(page: Page, debug_dir: Path) -> None:
     page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60_000)
-    mobile = first_visible(
-        page.get_by_label("Mobile Number", exact=False),
-        page.locator('input[placeholder*="mobile" i]'),
-        page.locator('input[type="tel"]'),
-    )
-    password = first_visible(
-        page.get_by_label("Password", exact=False),
-        page.locator('input[type="password"]'),
-    )
+    mobile = page.locator(f"xpath={MOBILE_NUMBER_XPATH}")
+    password = page.locator(f"xpath={PASSWORD_XPATH}")
+    mobile.wait_for(state="visible", timeout=20_000)
+    password.wait_for(state="visible", timeout=20_000)
     mobile.fill(WHIZZARD_USER)
     password.fill(WHIZZARD_PASS)
-    btn = first_visible(
-        page.get_by_role("button", name=re.compile(r"Sign In|Log In", re.I)),
-        page.locator('button:has-text("Sign In")'),
-        page.locator('button[type="submit"]'),
-        page.locator('input[type="submit"]'),
-    )
+    btn = page.locator(f"xpath={SIGN_IN_XPATH}")
+    btn.wait_for(state="visible", timeout=20_000)
     btn.click()
     try:
         page.get_by_text("Fleet At a Glance", exact=False).wait_for(state="visible", timeout=45_000)
@@ -194,7 +218,9 @@ def ensure_logged_in(page: Page, debug_dir: Path) -> None:
 
 
 def open_module(page: Page) -> None:
-    page.get_by_text("Vehicle Ticketing", exact=True).first.click()
+    module = page.locator(f"xpath={VEHICLE_TICKETING_XPATH}")
+    module.wait_for(state="visible", timeout=20_000)
+    module.click()
     page.get_by_text("Vehicle Ticketing System", exact=False).wait_for(state="visible", timeout=20_000)
 
 
@@ -211,26 +237,25 @@ def wait_for_loading(page: Page) -> None:
 
 
 def click_section(page: Page, section: Section) -> None:
-    first_visible(page.get_by_text(section.tab, exact=True)).click()
-    if section.subtab:
-        first_visible(page.get_by_text(section.subtab, exact=True)).click()
+    tab = page.locator(f"xpath={section.tab_xpath}")
+    tab.wait_for(state="visible", timeout=20_000)
+    tab.click()
+    if section.subtab_xpath:
+        subtab = page.locator(f"xpath={section.subtab_xpath}")
+        subtab.wait_for(state="visible", timeout=20_000)
+        subtab.click()
     first_visible(page.locator("table")).wait_for(state="visible", timeout=20_000)
     wait_for_loading(page)
 
 
 def find_month_field(page: Page, section: Section) -> Locator:
-    label = "Month" if section.subtab else "Filter by Month"
-    candidates = (
-        page.get_by_label(label, exact=True),
-        page.locator(f'label:has-text("{label}")').locator("input"),
-        page.locator('input[type="month"]'),
-        page.locator('input[placeholder*="month" i]'),
-    )
-    return first_visible(*candidates)
+    field = page.locator(f"xpath={section.month_xpath}")
+    field.wait_for(state="visible", timeout=20_000)
+    return field
 
 
-def set_month(page: Page, field: Locator, target: tuple[int, int]) -> None:
-    """Handle native month inputs, flatpickr, or text-backed custom date fields."""
+def set_month_once(page: Page, field: Locator, target: tuple[int, int]) -> None:
+    """Set one native, flatpickr, or text-backed custom month input."""
     iso, label = month_iso(target), month_label(target)
     input_type = (field.get_attribute("type") or "").lower()
     if input_type == "month":
@@ -275,10 +300,24 @@ def set_month(page: Page, field: Locator, target: tuple[int, int]) -> None:
                     }""",
                     label,
                 )
-    page.wait_for_timeout(1_000)
-    shown = (field.input_value() or "").strip()
-    if iso not in shown and label.lower() not in shown.lower():
-        raise RuntimeError(f"Month filter verification failed; field shows {shown!r}.")
+
+
+def set_month(page: Page, field: Locator, target: tuple[int, int]) -> None:
+    """Set and verify the month, tolerating the page's delayed input reset."""
+    iso, label = month_iso(target), month_label(target)
+    shown = ""
+    for attempt in range(1, 4):
+        field.wait_for(state="visible", timeout=20_000)
+        set_month_once(page, field, target)
+        page.wait_for_timeout(1_000)
+        shown = (field.input_value() or "").strip()
+        if iso in shown or label.lower() in shown.lower():
+            return
+        if attempt < 3:
+            # The application initializes tab state asynchronously and can clear
+            # the first value written immediately after navigation.
+            page.wait_for_timeout(1_000)
+    raise RuntimeError(f"Month filter verification failed; field shows {shown!r}.")
 
 
 def table_signature(page: Page) -> tuple[int, str]:
@@ -345,10 +384,8 @@ def save_download(download: Download, section: Section, target: tuple[int, int])
 
 
 def export_once(page: Page, section: Section, target: tuple[int, int]) -> Path:
-    export = first_visible(
-        page.get_by_text("Export", exact=True),
-        page.get_by_role("button", name=re.compile(r"^Export$", re.I)),
-    )
+    export = page.locator(f"xpath={section.export_xpath}")
+    export.wait_for(state="visible", timeout=20_000)
     with page.expect_download(timeout=DOWNLOAD_TIMEOUT_MS) as event:
         export.click()
     saved = save_download(event.value, section, target)

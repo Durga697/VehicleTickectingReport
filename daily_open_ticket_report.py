@@ -1,4 +1,8 @@
-"""Download the current month's five ticket exports and build one open-ticket report."""
+"""Download the current month's five ticket exports and build one open-ticket report.
+
+Browser navigation uses the XPath configuration shared by
+``download_vehicle_ticketing.py``.
+"""
 
 from __future__ import annotations
 
@@ -47,7 +51,30 @@ def setup_logging() -> Path:
     return log_path
 
 
+def validate_downloader_xpaths() -> None:
+    """Fail early if the shared downloader is missing a required XPath."""
+    shared = {
+        "Mobile Number": downloader.MOBILE_NUMBER_XPATH,
+        "Password": downloader.PASSWORD_XPATH,
+        "Sign In": downloader.SIGN_IN_XPATH,
+        "Vehicle Ticketing": downloader.VEHICLE_TICKETING_XPATH,
+    }
+    missing = [name for name, xpath in shared.items() if not xpath.strip()]
+    for section in downloader.SECTIONS:
+        selectors = {
+            f"{section.file_stem} tab": section.tab_xpath,
+            f"{section.file_stem} month": section.month_xpath,
+            f"{section.file_stem} export": section.export_xpath,
+        }
+        if section.subtab and not section.subtab_xpath:
+            selectors[f"{section.file_stem} subtab"] = ""
+        missing.extend(name for name, xpath in selectors.items() if not xpath.strip())
+    if missing:
+        raise RuntimeError(f"Missing downloader XPath configuration: {', '.join(missing)}")
+
+
 def download_current_month() -> list[dict[str, str | int]]:
+    validate_downloader_xpaths()
     target = (datetime.now().year, datetime.now().month)
     downloader.OUTPUT_PATH = DOWNLOAD_DIR
     downloader.HEADLESS = True
