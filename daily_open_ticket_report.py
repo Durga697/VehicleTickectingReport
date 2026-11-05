@@ -20,6 +20,7 @@ from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
+# pyrefly: ignore [missing-import]
 from playwright.sync_api import sync_playwright
 
 import download_vehicle_ticketing as downloader
@@ -37,7 +38,7 @@ RED = "C00000"
 LIGHT_RED = "FCE4D6"
 GREEN = "548235"
 WHITE = "FFFFFF"
-COMPLETED_STATUSES = {"accepted", "auto-accepted", "closed"}
+COMPLETED_STATUSES = {"accepted", "auto-accepted", "closed", "cancelled", "canceled"}
 
 
 def setup_logging() -> Path:
@@ -73,6 +74,15 @@ def validate_downloader_xpaths() -> None:
         raise RuntimeError(f"Missing downloader XPath configuration: {', '.join(missing)}")
 
 
+def report_months() -> list[tuple[int, int]]:
+    today = datetime.now()
+    return [(today.year - (today.month == 1), 12 if today.month == 1 else today.month - 1), (today.year, today.month)]
+
+
+DOWNLOAD_RESULTS = {}
+SOURCE_REMARKS = []
+
+
 def download_current_month() -> list[dict[str, str | int]]:
     validate_downloader_xpaths()
     target = (datetime.now().year, datetime.now().month)
@@ -97,9 +107,11 @@ def download_current_month() -> list[dict[str, str | int]]:
             downloader.login(page, debug_dir)
             downloader.open_module(page)
             for section in downloader.SECTIONS:
-                result = downloader.process_one(page, debug_dir, section, target)
-                results.append(result)
-                logging.info("%s | %s | %s", result["Section"], result["Month"], result["Status"])
+                for target in report_months():
+                    result = downloader.process_one(page, debug_dir, section, target)
+                    DOWNLOAD_RESULTS[(section.file_stem, downloader.month_iso(target))] = result["Status"]
+                    results.append(result)
+                    logging.info("%s | %s | %s", result["Section"], result["Month"], result["Status"])
         finally:
             browser.close()
 
@@ -111,8 +123,8 @@ def download_current_month() -> list[dict[str, str | int]]:
     return results
 
 
-def current_month_files() -> list[tuple[str, Path]]:
-    month = datetime.now().strftime("%Y-%m")
+def current_month_files(month: str | None = None) -> list[tuple[str, Path]]:
+    month = month or datetime.now().strftime("%Y-%m")
     return [
         ("Return from Ops", DOWNLOAD_DIR / "1_Return_from_Ops" / f"Return_from_Ops_{month}.csv"),
         ("Handover to Ops", DOWNLOAD_DIR / "2_Handover_to_Ops" / f"Handover_to_Ops_{month}.csv"),
@@ -126,7 +138,7 @@ def resolve_file(path: Path) -> Path:
     if path.exists():
         return path
     # The Return export has previously used a vendor-supplied filename.
-    month = datetime.now().strftime("%Y-%m")
+    month = path.stem.rsplit("_", 1)[-1]
     if path.name.startswith("Return_from_Ops_"):
         alternate = path.with_name(f"return_tickets_{month}.csv")
         if alternate.exists():
@@ -137,18 +149,32 @@ def resolve_file(path: Path) -> Path:
 def read_sources() -> tuple[list[dict[str, str]], list[str]]:
     rows: list[dict[str, str]] = []
     source_columns: list[str] = []
-    for source, expected in current_month_files():
-        path = resolve_file(expected)
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            for column in reader.fieldnames or []:
-                if column not in source_columns:
-                    source_columns.append(column)
-            for record in reader:
-                clean = {str(k).strip(): (v or "").strip() for k, v in record.items() if k is not None}
-                clean["Ticket Source"] = source
-                clean["Source File"] = path.name
-                rows.append(clean)
+    SOURCE_REMARKS.clear()
+    for year, month_number in report_months():
+        month = f"{year:04d}-{month_number:02d}"
+        for source, expected in current_month_files(month):
+            status = DOWNLOAD_RESULTS.get((expected.stem.rsplit("_", 1)[0], month))
+            if status == "FAILED":
+                raise RuntimeError(f"Export failed: {source} {month}")
+            if status == "NO DATA":
+                SOURCE_REMARKS.append((month, source, "No tickets found"))
+                continue
+            try:
+                path = resolve_file(expected)
+            except FileNotFoundError:
+                SOURCE_REMARKS.append((month, source, "Export unavailable; totals incomplete"))
+                continue
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for column in reader.fieldnames or []:
+                    if column not in source_columns:
+                        source_columns.append(column)
+                for record in reader:
+                    clean = {str(k).strip(): (v or "").strip() for k, v in record.items() if k is not None}
+                    clean["Ticket Source"] = source
+                    clean["Source File"] = path.name
+                    clean["Ticket Month"] = month
+                    rows.append(clean)
     return rows, source_columns
 
 
@@ -173,6 +199,7 @@ def normalize(row: dict[str, str]) -> dict[str, str]:
 
     return {
         "Ticket Source": row["Ticket Source"],
+        "Ticket Month": row.get("Ticket Month", ""),
         "Ticket ID": first_value(row, "Ticket ID", "Ticket Number"),
         "Accepted On": accepted_on,
         "Raised On": first_value(row, "Raised On", "Created On"),
@@ -266,6 +293,7 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     normalized = [normalize(row) for row in rows]
     open_rows = [row for row in normalized if row["Status"].strip().casefold() == "open"]
+    current_month = datetime.now().strftime("%Y-%m")
     completed_rows = [row for row in normalized if row["Status"].strip().casefold() in COMPLETED_STATUSES]
     previous_keys, previous_path = previous_completed_ticket_keys()
     newly_completed_rows = [] if previous_path is None else [
@@ -278,7 +306,7 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     summary = wb.active
     summary.title = "Open Ticket Summary"
     summary.sheet_view.showGridLines = False
-    summary["A1"] = "CURRENT MONTH OPEN TICKETS"
+    summary["A1"] = "OPEN TICKETS — CURRENT AND PREVIOUS MONTH"
     summary["A1"].font = Font(size=18, bold=True, color=WHITE)
     summary["A1"].fill = PatternFill("solid", fgColor=BLUE)
     summary.merge_cells("A1:E1")
@@ -286,7 +314,7 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     summary["B3"] = len(open_rows)
     summary["A3"].font = Font(size=14, bold=True)
     summary["B3"].font = Font(size=20, bold=True, color=RED)
-    summary["A4"] = "Total completed tickets this month"
+    summary["A4"] = "Completed tickets across reviewed months"
     summary["B4"] = len(completed_rows)
     summary["A4"].font = Font(size=14, bold=True)
     summary["B4"].font = Font(size=20, bold=True, color=GREEN)
@@ -302,7 +330,7 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     summary["A9"] = "Generated on"
     summary["B9"] = datetime.now().strftime("%d %b %Y %I:%M %p")
     summary.append([])
-    summary.append(["Ticket Source", "Open", "Completed", "Newly Completed", "All Current-Month Rows", "Action"])
+    summary.append(["Ticket Source", "Open", "Completed", "Newly Completed", "All Reviewed Rows", "Action"])
     style_header(summary, 11, 6)
     for source in source_names:
         total = sum(row["Ticket Source"] == source for row in normalized)
@@ -363,8 +391,8 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     add_table(open_ws, 1, open_ws.max_row, len(open_headers), "OpenTicketsTable")
     autosize(open_ws)
 
-    all_ws = wb.create_sheet("All Current Month")
-    all_headers = ["Ticket Source", *source_columns, "Source File"]
+    all_ws = wb.create_sheet("All Reviewed Tickets")
+    all_headers = ["Ticket Source", "Ticket Month", *source_columns, "Source File"]
     all_ws.append(all_headers)
     for row in rows:
         all_ws.append([row.get(header, "") for header in all_headers])
@@ -375,15 +403,47 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     autosize(all_ws)
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    wb.save(REPORT_PATH)
+    monthly = wb.create_sheet("Monthly Category Summary")
+    monthly.append(["Month", "Ticket Source", "Total Tickets", "Open Tickets", "Completed Tickets", "Remarks"])
+    for year, month_number in report_months():
+        month = f"{year:04d}-{month_number:02d}"
+        for source in source_names:
+            group = [r for r in normalized if r["Ticket Month"] == month and r["Ticket Source"] == source]
+            opened = sum(r["Status"].strip().casefold() == "open" for r in group)
+            completed = sum(r["Status"].strip().casefold() in COMPLETED_STATUSES for r in group)
+            remark = next((text for m, name, text in SOURCE_REMARKS if m == month and name == source), "All tickets completed" if group and completed == len(group) else "Pending tickets" if opened else "")
+            monthly.append([month, source, len(group), opened, completed, remark])
+    style_header(monthly, 1, 6)
+    monthly.freeze_panes = "A2"
+    autosize(monthly)
+    last_year, last_number = report_months()[0]
+    last_month = f"{last_year:04d}-{last_number:02d}"
+    last_rows = [r for r in normalized if r["Ticket Month"] == last_month]
+    present_rows = [r for r in normalized if r["Ticket Month"] == current_month]
+    summary.append([])
+    summary.append(["Month", "Total Tickets", "Open Tickets", "Completed Tickets"])
+    style_header(summary, summary.max_row, 4)
+    for label, group in [(last_month + " (Previous month)", last_rows), (current_month + " (Present month)", present_rows)]:
+        summary.append([label, len(group), sum(r["Status"].strip().casefold() == "open" for r in group), sum(r["Status"].strip().casefold() in COMPLETED_STATUSES for r in group)])
+    summary.append(["Combined open tickets", len(open_rows)])
+    summary.append([])
+    summary.append(["Previous-month pending tickets are included in Open Tickets. See Monthly Category Summary for month totals."])
+    for month, source, remark in SOURCE_REMARKS:
+        summary.append([month, source, remark])
+    output_path = REPORT_PATH
+    try:
+        wb.save(output_path)
+    except PermissionError:
+        output_path = REPORT_PATH.with_name(f"{REPORT_PATH.stem}_{datetime.now():%H%M%S}.xlsx")
+        wb.save(output_path)
     logging.info(
         "Report saved: %s (%d open, %d completed, %d newly completed)",
-        REPORT_PATH,
+        output_path,
         len(open_rows),
         len(completed_rows),
         len(newly_completed_rows),
     )
-    return REPORT_PATH
+    return output_path
 
 
 def parse_args() -> argparse.Namespace:

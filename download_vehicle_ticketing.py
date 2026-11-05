@@ -407,6 +407,10 @@ def process_one(page: Page, debug_dir: Path, section: Section, target: tuple[int
             field = find_month_field(page, section)
             set_month(page, field, target)
             row_count = apply_filter(page, section)
+            visible_rows = page.locator("table:visible tbody tr").all_inner_texts()
+            if row_count == 0 and any(re.search(r"No\s+.*(?:tickets|transfers|requisitions)", text, re.I) for text in visible_rows):
+                return {"Section": section.file_stem, "Month": label, "File saved": "",
+                        "Rows": 0, "Size bytes": 0, "Status": "NO DATA"}
             saved = export_once(page, section, target)
             size = saved.stat().st_size
             return {"Section": section.file_stem, "Month": label, "File saved": str(saved),
