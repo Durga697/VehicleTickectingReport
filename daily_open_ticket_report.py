@@ -294,7 +294,8 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     normalized = [normalize(row) for row in rows]
     open_rows = [row for row in normalized if row["Status"].strip().casefold() == "open"]
     current_month = datetime.now().strftime("%Y-%m")
-    completed_rows = [row for row in normalized if row["Status"].strip().casefold() in COMPLETED_STATUSES]
+    all_completed_rows = [row for row in normalized if row["Status"].strip().casefold() in COMPLETED_STATUSES]
+    completed_rows = [row for row in all_completed_rows if row["Ticket Month"] == current_month]
     previous_keys, previous_path = previous_completed_ticket_keys()
     newly_completed_rows = [] if previous_path is None else [
         row for row in completed_rows
@@ -315,7 +316,7 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     summary["A3"].font = Font(size=14, bold=True)
     summary["B3"].font = Font(size=20, bold=True, color=RED)
     summary["A4"] = "Completed tickets across reviewed months"
-    summary["B4"] = len(completed_rows)
+    summary["B4"] = len(all_completed_rows)
     summary["A4"].font = Font(size=14, bold=True)
     summary["B4"].font = Font(size=20, bold=True, color=GREEN)
     summary["A5"] = "Completed tickets in previous report"
@@ -335,11 +336,11 @@ def build_report(rows: list[dict[str, str]], source_columns: list[str]) -> Path:
     for source in source_names:
         total = sum(row["Ticket Source"] == source for row in normalized)
         opened = sum(row["Ticket Source"] == source for row in open_rows)
-        completed = sum(row["Ticket Source"] == source for row in completed_rows)
+        completed = sum(row["Ticket Source"] == source for row in all_completed_rows)
         newly_completed = sum(row["Ticket Source"] == source for row in newly_completed_rows)
         summary.append([source, opened, completed, newly_completed, total, "Close pending tickets" if opened else "No open tickets"])
     total_row = summary.max_row + 1
-    summary.append(["TOTAL", len(open_rows), len(completed_rows), len(newly_completed_rows), len(normalized), ""])
+    summary.append(["TOTAL", len(open_rows), len(all_completed_rows), len(newly_completed_rows), len(normalized), ""])
     for cell in summary[total_row]:
         cell.font = Font(bold=True, color=WHITE)
         cell.fill = PatternFill("solid", fgColor=GREEN)
